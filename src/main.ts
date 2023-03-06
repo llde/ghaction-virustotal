@@ -42,7 +42,10 @@ async function runForLocalFiles(vt: VirusTotal, limiter: RateLimiter | undefined
     core.warning(`No files were found. Please check the 'files' input.`);
     return;
   }
+  const release = await github.getRelease(octokit, github.context().ref.replace('refs/tags/', ''));
+  core.info(`Test for release ${github.context().ref}`);
 
+  if (release) release.body = release.body.concat(`\n\n🛡 [VirusTotal GitHub Action](https://github.com/crazy-max/ghaction-virustotal) analysis:`);
   await core.group(`${files.length} file(s) will be sent to VirusTotal for analysis`, async () => {
     await context.asyncForEach(files, async filepath => {
       if (limiter !== undefined) {
@@ -53,15 +56,23 @@ async function runForLocalFiles(vt: VirusTotal, limiter: RateLimiter | undefined
         await vt.monitorItems(filepath, inputs.monitorPath).then(upload => {
           outputAnalysis.push(`${filepath}=${upload.url}`);
           core.info(`${filepath} successfully uploaded to monitor. Check detection analysis at ${upload.url}`);
+          if (release) release.body = release.body.concat(`\n  * [\`${filepath}\`](${upload.url})`);
         });
       } else {
         await vt.files(filepath).then(upload => {
           outputAnalysis.push(`${filepath}=${upload.url}`);
           core.info(`${filepath} successfully uploaded. Check detection analysis at ${upload.url}`);
+          if (release) release.body = release.body.concat(`\n  * [\`${filepath}\`](${upload.url})`);
         });
       }
     });
   });
+  if (release) {
+    if (/true/i.test(core.getInput('update_release_body'))) {
+      core.info(`Appending analysis link(s) to release body`);
+      await github.updateReleaseBody(octokit, release);
+    }
+  }
 }
 
 async function runForReleaseEvent(vt: VirusTotal, limiter: RateLimiter | undefined) {
